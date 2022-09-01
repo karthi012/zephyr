@@ -1,0 +1,50 @@
+#
+# Copyright (c) 2022 Linumiz
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+description: AMBIQ AM18X5 I2C RTC
+
+compatible: "ambiq,am18x5"
+
+include: i2c-device.yaml
+
+properties:
+  reg:
+    required: true
+
+  tc-diode:
+    type: boolean
+    description: |
+      Diode select
+
+      true = insert standard diode into the trickle charge circuit.
+
+      false = insert schottky diode into the trickle charge circuit.
+
+  tc-resistor:
+    type: int
+    required: false
+    description: |
+      Select the output resistor of the trickle charge circuit.
+
+      0 = 0ohm
+      1 = 3kiloohm
+      2 = 6kiloohm
+      3 = 11kiloohm 
+    enum:
+      - 0
+      - 1
+      - 2
+      - 3
+
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: |
+
+      Host input connected to the AM18X5 open drain output pin
+
+      Notifies when an alarm has triggered by asserting this line.
+
