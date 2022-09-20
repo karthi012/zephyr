@@ -29,7 +29,7 @@ LOG_MODULE_REGISTER(AM18X5, CONFIG_COUNTER_LOG_LEVEL);
 
 #define RTC_TIME_REG_SIZE	sizeof(struct am18x5_time_registers)
 
-#define MAX_WRITE_SIZE		RTC_TIME_RGE_SIZE
+#define MAX_WRITE_SIZE		RTC_TIME_REG_SIZE
 
 #define UNIX_YEAR_OFFSET	69
 
@@ -57,13 +57,15 @@ static time_t decode_rtc(const struct device *dev)
 	struct am18x5_data *data = dev->data;
 	time_t time_unix = 0;
 	struct tm time = { 0 };
-
+	
 	time.tm_sec = RTC_BCD_DECODE(data->registers.rtc_sec.sec);
-        time.tm_min = RTC_BCD_DECODE(data->registers.rtc_min.min);
+        time.tm_sec = RTC_BCD_DECODE(data->registers.rtc_min.min);
         time.tm_hour = RTC_BCD_DECODE(data->registers.rtc_hours.hr);
         time.tm_mday = RTC_BCD_DECODE(data->registers.rtc_date.date);
         time.tm_wday = data->registers.rtc_weekday.weekday;
+        /* tm struct starts months at 0, AM18X5 starts at 1*/
         time.tm_mon = RTC_BCD_DECODE(data->registers.rtc_month.month) - 1;
+        /* tm struct uses years since 1900 but unix time uses year since 1970 */
         time.tm_year = RTC_BCD_DECODE(data->registers.rtc_year.year) +
                 UNIX_YEAR_OFFSET;
 
@@ -76,7 +78,7 @@ static time_t decode_rtc(const struct device *dev)
 
 static int encode_rtc(const struct device *dev, struct tm *time_buffer)
 {
-        struct mcp7940n_data *data = dev->data;
+        struct am18x5_data *data = dev->data;
         uint8_t month;
         uint8_t year_since_epoch;
 
@@ -108,15 +110,42 @@ static int encode_rtc(const struct device *dev, struct tm *time_buffer)
 	return 0;
 }
 
+static int write_data_block(const struct device *dev, uint8_t addr, uint8_t size)
+{
+	struct am18x5_data *data = dev->data;
+	const struct am18x5_config *cfg = dev->config;
+	int rc = 0;
+	uint8_t time_data[MAX_WRITE_SIZE + 1]; 
+	uint8_t *write_block_start;
+
+	if (size > MAX_WRITE_SIZE) {
+		return -EINVAL;
+	}
+
+	if (addr == RTC_REG_SEC) {
+		write_block_start = (uint8_t *)&data->registers;
+	} else {
+		return -EINVAL;
+	}
+
+	time_data[0] = addr;
+	memcpy(&time_data[1], write_block_start, size);
+
+	rc = i2c_write(cfg->i2c, time_data, size + 1, cfg->addr);
+
+	return rc;
+}
+
 static int am18x5_start(const struct device *dev)
 {
+	struct am18x5_config *cfg = dev->config;
 	struct am18x5_data *data = dev->data;
 	uint8_t buf = 0;
 	int rc = 0;
 
 	k_sem_take(&data->lock, K_FOREVER);
 	
-	rc = i2c_reg_read_byte(dev, REG_RTC_CTRL1, &buf);
+	rc = i2c_reg_read_byte(dev,  cfg->addr, RTC_REG_CTRL1, &buf);
 	if(rc < 0) {
 		LOG_ERR("Failed to read control register");
 		goto out;
@@ -124,7 +153,7 @@ static int am18x5_start(const struct device *dev)
 	/* Clear the STOP Bit in Control1 register starts the RTC*/
 	WRITE_BIT(buf, 7, 0);
 
-	rc = i2c_reg_write_byte(dev, REG_RTC_CTRL1, &buf);
+	rc = i2c_reg_write_byte(dev, cfg->addr,  RTC_REG_CTRL1, &buf);
 	if(rc != 0) {
 		LOG_ERR("Failed to write control register");
 		goto out;
@@ -139,12 +168,13 @@ out:
 static int am18x5_stop(const struct device *dev)
 {
 	struct am18x5_data *data = dev->data;
+	struct am18x5_config *cfg = dev->config;
 	uint8_t buf = 0;
 	int rc = 0;
 
 	k_sem_take(&data->lock, K_FOREVER);
 
-	rc = i2c_reg_read_byte(dev, REG_RTC_CTRL1, &buf);
+	rc = i2c_reg_read_byte(dev, cfg->addr, RTC_REG_CTRL1, &buf);
 	if(rc != 0) {
 		LOG_ERR("Failed to read control register");
 		goto out;
@@ -152,7 +182,7 @@ static int am18x5_stop(const struct device *dev)
 
 	WRITE_BIT(buf, 7, 1);
 
-	rc = i2c_reg_read_byte(dev, REG_RTC_CTRL1, &buf);
+	rc = i2c_reg_read_byte(dev, cfg->addr, RTC_REG_CTRL1, &buf);
 	if(rc != 0) {
 		LOG_ERR("Failed to write Control register");
 		goto out;
@@ -168,18 +198,125 @@ static int read_time(const struct device *dev, time_t *unix_time)
 {
 	struct am18xt_data *data = dev->data;
 	const struct am18x5_config *cfg = dev->config;
-	uint8_t addr = REG_RTC_SEC;
+	uint8_t addr = RTC_REG_SEC;
 	int rc = 0;
 
-	rc = i2c_write_read_dt(cfg->i2c, cfg->addr,
+	rc = i2c_write_read(cfg->i2c, cfg->addr, sizeof(addr), &data->registers,
+				RTC_TIME_REG_SIZE);
 	
-static int am18x5_counter_get_value(const struct device *dev)
+	if(rc >= 0) {
+		*unix_time = decode_rtc(dev);
+	}
+
+	return rc;
+}	
+
+	
+static int am18x5_counter_get_value(const struct device *dev, uint32_t *ticks)
 {
+	struct am18x5_data *data = dev->data;
+	time_t unix_time;
+	int rc = 0;
+
+	k_sem_take(&data->lock, K_FOREVER);
+
+	/* Get time */
+	rc = read_time(dev, &unix_time);
 	
+	if(rc >= 0) {
+		*ticks = unix_time;
+	}
+
+	k_sem_give(&data->lock);
+
+	return rc;
+}
+
+static int am18x5_counter_set_alarm(const struct device *dev)
+{
+	return 0 ;
+}
+
+static int am18x5_counter_cancel_alarm(const struct device *dev)
+{
+	 return 0; 
+}
+
+static int am18x5_counter_set_top_value(const struct device *dev)
+{
+	return 0;
+}
+
+static int am18x5_counter_get_pending_int(const struct device *dev)
+{
+	return 0;
+}
+
+static uint32_t am18x5_counter_get_top_value(const struct device *dev)
+{
+        return UINT32_MAX;
+}
+
+
+int set_time(const struct device *dev, time_t unix_time)
+{
+	struct am18x5_config *cfg = dev->cfg;
+	struct am18x5_data *data = dev->data;
+	struct tm time_buffer = { 0 } ;
+	int rc = 0;
+	uint8_t buf = 0;
 	
+	if(unix_time > UINT32_MAX) {
+		LOG_ERR("Unix time must be 32-bit");
+		return -EINVAL;
+	}
 
+	k_sem_take(&data->lock, K_FOREVER);
 
+	gmtime_r(&unix_time, &time_buffer);
 
+	LOG_DBG("Desired time is %d-%d-%d %d:%d:%d\n", (time_buffer.tm_year + 1900),
+                (time_buffer.tm_mon + 1), time_buffer.tm_mday, time_buffer.tm_hour,
+                time_buffer.tm_min, time_buffer.tm_sec);
+
+	rc = encode_rtc(dev, &time_buffer);
+	if(rc < 0) {
+		goto out;
+	}
+
+	rc = i2c_reg_read_byte(dev, cfg->addr, RTC_REG_CTRL1, &buf);
+	if(rc != 0) {
+		LOG_ERR("Failed to read the Control register");
+		goto out;
+	}	
+		
+	WRITE_BIT(buf, 0, 1);
+
+	rc = i2c_reg_write_byte(dev, cfg->addr, RTC_REG_CTRL1, buf);
+	if(rc != 0) {
+		LOG_ERR("Failed to write Control register");
+		goto out;
+	}
+
+	rc = write_data_block(dev, RTC_REG_SEC, RTC_TIME_REG_SIZE);
+	if(rc < 0) {
+		LOG_ERR("Failed to update time register");
+		goto out;
+	}
+
+	WRITE_BIT(buf, 0, 0);
+
+	rc = i2c_reg_write_byte(dev, cfg->addr, RTC_REG_CTRL1, buf);
+	if(rc != 0) {
+		LOG_WRN("Failed to write Control register");
+		LOG_WRN("Not possible to prevent inadvertent access counters register");
+	}
+
+out:
+	k_sem_give(&data->lock);
+
+	return rc;
+}	
 
 static int am18x5_init(const struct device *dev)
 {
@@ -190,7 +327,8 @@ static int am18x5_init(const struct device *dev)
 	int trickle_cfg = -EINVAL;
 	uint8_t buf = 0;
 	uint8_t part_number[2] = { 0 };
-
+	
+	printk("RTC initialise satred\n");
 	k_sem_init(&data->lock, 0, 1);
 
 	if(!device_is_ready(cfg->i2c.bus)) {
@@ -199,7 +337,7 @@ static int am18x5_init(const struct device *dev)
 		goto out;
 	}
 
-	rc = i2c_write_read_dt(cfg->i2c, cfg->addr, REG_RTC_ID0, 2, part_number, sizeof(part_number));
+	rc = i2c_write_read(cfg->i2c, cfg->addr, RTC_REG_ID0, 2, part_number, sizeof(part_number));
 	if(rc != 0){
 		LOG_ERR("Failed to read Hardware ID register");
 		rc = -EIO;
@@ -212,7 +350,7 @@ static int am18x5_init(const struct device *dev)
 		goto out;
 	}
 
-	rc = i2c_reg_read_byte_dt(cfg->i2c, cfg->addr, REG_RTC_CTRL1, &buf);
+	rc = i2c_reg_read_byte(cfg->i2c, cfg->addr, RTC_REG_CTRL1, &buf);
 	if(rc != 0) {
 		LOG_ERR("Failed to read CTRL1 register");
 		rc = -EIO;
@@ -221,7 +359,7 @@ static int am18x5_init(const struct device *dev)
 
 	buf |= ((buf ~(RTC_REG_CTRL1_12_24 | RTC_REG_CTRL1_ARST)) | RTC_REG_CTRL1_WR); 
 
-	rc = i2c_reg_write_byte_dt(cfg->i2c, REG_RTC_CFG, buf); 
+	rc = i2c_reg_write_byte(cfg->i2c, cfg->addr, RTC_REG_CFG, buf); 
 	if(rc != 0) {
 		LOG_ERR("Failed to write configuration key register");
 		rc = -EIO;
@@ -231,13 +369,14 @@ static int am18x5_init(const struct device *dev)
 	trickle_cfg |= (RTC_REG_TRICKLE_CHARGE_EN |
                        (cfg->diode ? RTC_REG_TC_STANDARD : RTC_REG_TC_SCHOTTKY) |
                        cfg->resistor);
-	rc = i2c_reg_write_byte_dt(cfg->i2c, REG_RTC_TRICKLE, trickle_cfg);
+	rc = i2c_reg_write_byte(cfg->i2c,cfg->addr, RTC_REG_TRICKLE, trickle_cfg);
 	if(rc != 0) {
 		LOG_ERR("Failed to write trickle regiter");
 		rc = -EIO;
 		goto out;
 	}
 
+	printk("RTC Initialised Successfully\n");
 	LOG_INF("RTC Initialised Successfully");
 
 out:

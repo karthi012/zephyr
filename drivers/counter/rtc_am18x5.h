@@ -7,10 +7,10 @@
 #ifndef ZEPHYR_INCLUDE_DRIVERS_RTC_AM18X5_H_
 #define ZEPHYR_INCLUDE_DRIVERS_RTC_AM18X5_H_
 
-#include <sys/timeutil.h>
+#include <zephyr/sys/timeutil.h>
 #include <time.h>
 
-struct am18x5_rt_sec {
+struct am18x5_rtc_sec {
 	uint8_t sec_one : 4;
 	uint8_t sec_ten : 3;
 	uint8_t unused : 1;
@@ -62,14 +62,14 @@ struct am18x5_time_registers {
 };
 
 enum am18x_registers {
-	REG_RTC_HTH	= 0x0,
-	REG_RTC_SEC	= 0x01,
-	REG_RTC_MIN	= 0x02,
-	REG_RTC_HOUR	= 0x03,
-	REG_RTC_DATE	= 0x04,
-	REG_RTC_MONTH	= 0x05,
-	REG_RTC_YEAR	= 0x06,
-	REG_RTC_WEEKDAY	= 0x07,
+	RTC_REG_HTH	= 0x0,
+	RTC_REG_SEC	= 0x01,
+	RTC_REG_MIN	= 0x02,
+	RTC_REG_HOUR	= 0x03,
+	RTC_REG_DATE	= 0x04,
+	RTC_REG_MONTH	= 0x05,
+	RTC_REG_YEAR	= 0x06,
+	RTC_REG_WEEKDAY	= 0x07,
 	REG_ALM_HTH	= 0x08,
 	REG_ALM_SEC	= 0x09,
 	REG_ALM_MIN	= 0x0A,
@@ -77,19 +77,20 @@ enum am18x_registers {
 	REG_ALM_DATE	= 0x0C,
 	REG_ALM_MONTH	= 0x0D,
 	REG_ALM_WEEKDAY	= 0x0E,
-	REG_RTC_STATUS	= 0x0F,
-	REG_RTC_CTRL1	= 0x10,
-	REG_RTC_CTRL2	= 0x11,
-	REG_RTC_INTMSK	= 0x12,
-	REG_RTC_OS_CTRL	= 0x1C,
-	REG_RTC_OS_STAT	= 0x1D,
-	REG_RTC_CFG	= 0x1F,
-	REG_RTC_TRICKLE	= 0x20,
-	REG_RTC_AFCTRL	= 0x26,
-	REG_RTC_ID0	= 0x28,
-	REG_RTC_ASTAT	= 0x2F,
-	REG_RTC_OCTRL	= 0x30,
+	RTC_REG_STATUS	= 0x0F,
+	RTC_REG_CTRL1	= 0x10,
+	RTC_REG_CTRL2	= 0x11,
+	RTC_REG_INTMSK	= 0x12,
+	RTC_REG_OS_CTRL	= 0x1C,
+	RTC_REG_OS_STAT	= 0x1D,
+	RTC_REG_CFG	= 0x1F,
+	RTC_REG_TRICKLE	= 0x20,
+	RTC_REG_AFCTRL	= 0x26,
+	RTC_REG_ID0	= 0x28,
+	RTC_REG_ASTAT	= 0x2F,
+	RTC_REG_OCTRL	= 0x30,
 };
 
 int am18x5_rtc_set_time(const struct device *dev, time_t unix_time);
 
+#endif

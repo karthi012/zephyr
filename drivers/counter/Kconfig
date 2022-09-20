@@ -70,6 +70,8 @@ source "drivers/counter/Kconfig.esp32_rtc"
 
 source "drivers/counter/Kconfig.mcp7940n"
 
+source "drivers/counter/Kconfig.am18x5"
+
 source "drivers/counter/Kconfig.mcux_ctimer"
 
 source "drivers/counter/Kconfig.andes_atcpit100"
