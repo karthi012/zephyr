@@ -1,0 +1,11 @@
+# Copyrigth (c) 2022 Linumiz
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+config COUNTER_AMBIQ_AM18X5
+	bool "AMBIQ AM18X5 RTC"
+	select I2C
+	help
+	 Enable RTC driver based on AMBIQ AM18X5 RTC.
+
