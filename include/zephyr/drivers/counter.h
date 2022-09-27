@@ -172,6 +172,8 @@ struct counter_config_info {
 
 typedef int (*counter_api_start)(const struct device *dev);
 typedef int (*counter_api_stop)(const struct device *dev);
+typedef int (*counter_api_set_value)(const struct device *dev,
+					uint32_t ticks);
 typedef int (*counter_api_get_value)(const struct device *dev,
 				     uint32_t *ticks);
 typedef int (*counter_api_get_value_64)(const struct device *dev,
@@ -195,6 +197,7 @@ typedef uint32_t (*counter_api_get_freq)(const struct device *dev);
 __subsystem struct counter_driver_api {
 	counter_api_start start;
 	counter_api_stop stop;
+	counter_api_set_value set_value;
 	counter_api_get_value get_value;
 	counter_api_get_value_64 get_value_64;
 	counter_api_set_alarm set_alarm;
