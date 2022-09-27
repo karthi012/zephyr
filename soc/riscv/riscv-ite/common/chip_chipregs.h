@@ -10,17 +10,6 @@
 
 #define EC_REG_BASE_ADDR 0x00f00000
 
-#ifndef FALSE
-#define FALSE   0
-#endif
-
-/* TRUE can be defined as !FALSE but defining
- * it as 1 allows it to fit into a bitfield.
- */
-#ifndef TRUE
-#define TRUE    1
-#endif
-
 #ifdef _ASMLANGUAGE
 #define ECREG(x)        x
 #else
@@ -1773,6 +1762,7 @@ enum chip_pll_mode {
 /* 0x0F: SMBus FIFO Control 2 */
 #define IT8XXX2_SMB_BLKDS             BIT(4)
 #define IT8XXX2_SMB_FFEN              BIT(3)
+#define IT8XXX2_SMB_FFCHSEL2_B        0
 #define IT8XXX2_SMB_FFCHSEL2_C        BIT(0)
 /* 0x10: SMBus FIFO Status 2 */
 #define IT8XXX2_SMB_FIFO2_EMPTY       BIT(7)
@@ -1781,6 +1771,7 @@ enum chip_pll_mode {
 #define IT8XXX2_SMB_MAIF              BIT(7)
 #define IT8XXX2_SMB_MBCIF             BIT(6)
 #define IT8XXX2_SMB_MCIFI             BIT(2)
+#define IT8XXX2_SMB_MBIFI             BIT(1)
 #define IT8XXX2_SMB_MAIFI             BIT(0)
 /* 0x13: I2C Wr To Rd FIFO Interrupt Status */
 #define IT8XXX2_SMB_MCIFID            BIT(2)

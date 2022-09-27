@@ -36,6 +36,7 @@
 #include "ull_scan_internal.h"
 #include "ull_sync_internal.h"
 #include "ull_sync_iso_internal.h"
+#include "ull_df_internal.h"
 
 #define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
 #define LOG_MODULE_NAME bt_ctlr_ull_scan_aux
@@ -697,7 +698,9 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 				      ticks_slot_overhead),
 				     ticker_cb, aux, ticker_op_cb, aux);
 	LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
-		  (ticker_status == TICKER_STATUS_BUSY));
+		  (ticker_status == TICKER_STATUS_BUSY) ||
+		  ((ticker_status == TICKER_STATUS_FAILURE) &&
+		   IS_ENABLED(CONFIG_BT_TICKER_LOW_LAT)));
 
 	return;
 
