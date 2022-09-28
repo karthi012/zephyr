@@ -51,6 +51,9 @@ LOG_MODULE_REGISTER(AM18X5, CONFIG_COUNTER_LOG_LEVEL);
 #define TRICKLE_REG_ENABLE	0x9D
 #define RTC_REG_CTRL1_WR	BIT(0)
 #define RTC_REG_CTRL1_ARST	BIT(2)
+#define RTC_REG_TC_STANDARD	0x8
+#define RTC_REG_TC_SCHOTTKY	0x4
+#define RTC_REG_TRICKLE_CHARGE_EN	0xa0
 
 struct am18x5_config {
 	struct counter_config_info generic;
@@ -66,25 +69,175 @@ struct am18x5_data {
 	struct tm time_register;
 };
 
-
-int am18x5_rtc_start(const struct device *dev)
+static int am18x5_rtc_start(const struct device *dev)
 {
-	return 0;
+	struct am18x5_data *data = dev->data;
+	struct am18x5_config *cfg = dev->config;
+	int rc = 0;
+	uint8_t buf = 0;
+
+	k_sem_take(&data->lock, K_FOREVER);
+
+	rc = i2c_reg_read_byte_dt(&cfg->i2c, RTC_REG_CTRL1, &buf);
+	if (rc != 0) {
+		LOG_ERR("Failed to read control register");
+		goto out;
+	}
+
+	WRITE_BIT(buf, 7, 0);
+
+	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_CTRL1, buf);
+	if (rc != 0) {
+		LOG_ERR("Failed to write control register");
+		goto out;
+	}
+
+	LOG_INF("RTC started successfully");
+out:
+	k_sem_give(&data->lock);
+
+	return rc;
 }
 
-int am18x5_rtc_stop(const struct device *dev)
+static int am18x5_rtc_stop(const struct device *dev)
 {
-	return 0;
+	struct am18x5_data *data = dev->data;
+	struct am18x5_config *cfg = dev->config;
+	int rc = 0;
+	uint8_t buf = 0;
+
+	k_sem_take(&data->lock, K_FOREVER);
+
+	rc = i2c_reg_read_byte_dt(&cfg->i2c, RTC_REG_CTRL1, &buf);
+	if (rc != 0) {
+		LOG_ERR("Failed to read control register");
+		goto out;
+	}
+
+	WRITE_BIT(buf, 7, 1);
+
+	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_CTRL1, buf);
+	if (rc != 0) {
+		LOG_ERR("Failed to write control register");
+		goto out;
+	}
+
+	LOG_INF("RTC stopped Successfully");
+out:
+	k_sem_give(&data->lock);
+
+	return rc;
 }
 
-int am18x5_rtc_set_value(const struct device *dev, uint32_t ticks)
+static int am18x5_rtc_set_value(const struct device *dev, uint32_t ticks)
 {
-	return 0;
+	struct am18x5_data *data = dev->data;
+	struct am18x5_config *cfg = dev->config;
+	int rc = 0;
+	struct tm tm_buf = { 0 };
+	uint8_t buffer = 0;
+	uint8_t buf[7] = { 0 };
+
+	if (ticks > UINT32_MAX) {
+		return -EINVAL;
+	}
+
+	k_sem_take(&data->lock, K_FOREVER);
+
+	/* Convert unix_time to civil time */
+	gmtime_r(&ticks, &tm_buf);
+
+	rc = i2c_reg_read_byte_dt(&cfg->i2c, RTC_REG_CTRL1, &buffer);
+	if (rc != 0) {
+		LOG_ERR("Failed to read CTRL1 register");
+		goto out;
+	}
+
+	WRITE_BIT(buffer, 0, 1);
+
+	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_CTRL1, buffer);
+	if (rc != 0) {
+		LOG_ERR("Failed to configure control register");
+		goto out;
+	}
+
+	buf[RTC_REG_HTH] = 0;
+	buf[RTC_REG_SEC] = bin2bcd(tm_buf.tm_sec);
+	buf[RTC_REG_MIN] = bin2bcd(tm_buf.tm_min);
+	buf[RTC_REG_HOUR] = bin2bcd(tm_buf.tm_hour);
+	buf[RTC_REG_DATE] = bin2bcd(tm_buf.tm_mday);
+	buf[RTC_REG_MONTH] = bin2bcd(tm_buf.tm_mon + 1);
+	buf[RTC_REG_YEAR] = bin2bcd(tm_buf.tm_year - 100);
+	buf[RTC_REG_WEEKDAY] = tm_buf.tm_wday;
+
+	rc = i2c_burst_write_dt(&cfg->i2c, RTC_REG_HTH, buf, sizeof(buf));
+	if (rc != 0) {
+		LOG_ERR("Failed to write time register");
+		goto out;
+	}
+
+	WRITE_BIT(buffer, 0, 0);
+
+	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_CTRL1, buffer);
+	if (rc != 0) {
+		LOG_ERR("Failed to configure control register");
+		goto out;
+	}
+
+	rc = i2c_reg_read_byte_dt(&cfg->i2c, RTC_REG_OS_STAT, &buffer);
+	if (rc != 0) {
+		LOG_ERR("Failed to read Oscillator status register");
+		goto out;
+	}
+
+	WRITE_BIT(buffer, 1, 1);
+
+	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_OS_STAT, buffer);
+	if (rc != 0) {
+		LOG_ERR("Failed to write oscillator status register");
+		goto out;
+	}
+
+	LOG_INF("RTC updated successfully");
+out:
+	k_sem_give(&data->lock);
+
+	return rc;
 }
 
-int am18x5_rtc_get_value(const struct device *dev, uint32_t *ticks)
+static int am18x5_rtc_get_value(const struct device *dev, uint32_t *ticks)
 {
-	return 0;
+	struct am18x5_data *data = dev->data;
+	struct am18x5_config *cfg = dev->config;
+	struct tm tm_buf = { 0 };
+	int rc = 0;
+	uint8_t buf[8] = { 0 };
+
+	buf[0] = RTC_REG_SEC;
+
+	k_sem_take(&data->lock, K_FOREVER);
+
+	rc = i2c_write_read_dt(&cfg->i2c, &buf[0], sizeof(buf[0]), buf, sizeof(buf));
+	if (rc != 0) {
+		LOG_ERR("Failed to read time registers");
+		goto out;
+	}
+
+	tm_buf.tm_sec = bcd2bin(buf[RTC_REG_SEC] & 0x7F);
+	tm_buf.tm_min = bcd2bin(buf[RTC_REG_MIN] & 0x7F);
+	tm_buf.tm_hour = bcd2bin(buf[RTC_REG_HOUR] & 0x3F);
+	tm_buf.tm_wday = buf[RTC_REG_WEEKDAY] & 0x7;
+	tm_buf.tm_mday = bcd2bin(buf[RTC_REG_DATE] & 0x3F);
+	tm_buf.tm_mon = bcd2bin(buf[RTC_REG_MONTH] & 0x1F) - 1;
+	tm_buf.tm_year = bcd2bin(buf[RTC_REG_YEAR]) + 100;
+
+	*ticks =  timeutil_timegm(&tm_buf);
+
+	LOG_DBG("Unix Time = %lld", *ticks);
+out:
+	k_sem_give(&data->lock);
+
+	return rc;
 }
 
 int am18x5_rtc_get_value_64(const struct device *dev, uint64_t *ticks)
@@ -133,7 +286,7 @@ uint32_t am18x5_rtc_get_freq(const struct device *dev)
 	return 0;
 }
 
-struct counter_driver_api am18x5_api = {
+static struct counter_driver_api am18x5_api = {
 	.start = am18x5_rtc_start,
 	.stop = am18x5_rtc_stop,
 	.set_value = am18x5_rtc_set_value,
@@ -181,20 +334,6 @@ static int am18x5_init(const struct device *dev)
 		goto out;
 	}
 
-	rc = i2c_reg_read_byte_dt(&cfg->i2c, RTC_REG_CTRL1, &buf);
-	if (rc != 0) {
-		LOG_ERR("Failed to read CTRL1 register");
-		goto out;
-	}
-
-	WRITE_BIT(buf, 0, 1);
-
-	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_CTRL, buf);
-	if (rc != 0) {
-		LOG_ERR("Failed to configure control register");
-		goto out;
-	}
-
 	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_CFG, TRICKLE_REG_ENABLE);
 	if (rc != 0) {
 		LOG_ERR("Failed to write configuration key register");
@@ -205,7 +344,7 @@ static int am18x5_init(const struct device *dev)
 			(cfg->diode ? RTC_REG_TC_STANDARD : RTC_REG_TC_SCHOTTKY) |
 			cfg->resistor);
 
-	rc = i2_reg_write_byte_dt(&cfg->i2c, RTC_REG_TRICKLE, trickle_cfg);
+	rc = i2c_reg_write_byte_dt(&cfg->i2c, RTC_REG_TRICKLE, trickle_cfg);
 	if (rc != 0) {
 		LOG_ERR("Failed to configure trickle register");
 		goto out;
