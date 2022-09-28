@@ -352,6 +352,25 @@ static inline int z_impl_counter_stop(const struct device *dev)
 
 	return api->stop(dev);
 }
+/**
+ * @brief Set counter value.
+ * @param dev Pointer to the device structure for the driver instance.
+ * @param ticks value to set the counter value
+ *
+ * @retval 0 If successful.
+ * @retval Negative error code on failure getting the counter value
+ */
+__syscall int counter_set_value(const struct device *dev, uint32_t ticks);
+
+static inline int z_impl_counter_set_value(const struct device *dev,
+					   uint32_t ticks)
+{
+	const struct counter_driver_api *api =
+				(struct counter_driver_api *)dev->api;
+
+	return api->set_value(dev, ticks);
+}
+
 
 /**
  * @brief Get current counter value.
